@@ -1,0 +1,81 @@
+HBase集群也是支持主从架构的，在这计划使用bigdata01、02、03这三台机器。
+建议把HBase的从节点和Hadoop集群的从节点部署在相同的机器上面，这样可以最大化利用数据本地化的特性。
+
+安装部署：
+	1：首先在bigdata01上进行操作，将HBase安装包上传到bigdata01的/data/soft目录中并且解压。
+	2: 修改hbase-env.sh，在文件末尾直接添加以下配置即可
+		[root@bigdata01 soft]# cd hbase-2.2.7/conf
+		[root@bigdata01 conf]# vi hbase-env.sh
+		....
+		export JAVA_HOME=/data/soft/jdk1.8
+		export HADOOP_HOME=/data/soft/hadoop-3.2.0
+		export HBASE_MANAGES_ZK=false
+		export HBASE_LOG_DIR=/data/hbase/logs
+	3: 接下来修改hbase-site.xml hbase-site.xml中默认有3个配置参数，主要修改里面hbase.cluster.distributed和hbase.tmp.dir的值。
+		[root@bigdata01 conf]# vi hbase-site.xml 
+		<!--是否为分布式模式部署，true表示分布式部署-->
+		<property>
+    		<name>hbase.cluster.distributed</name>
+    		<value>true</value>
+		</property>
+		<!-- 本地文件系统tmp目录-->
+		<property>
+    		<name>hbase.tmp.dir</name>
+    		<value>/data/hbase/tmp</value>
+		</property>
+		<!-- 这个参数的值默认不变即可，默认就是false。在分布式情况下, 一定设置为false -->
+		<property>
+    		<name>hbase.unsafe.stream.capability.enforce</name>
+    		<value>false</value>
+		</property>
+	4: 前面这几个已有的参数修改完毕以后，还需要向hbase-site.xml中添加下面这些参数
+		[root@bigdata01 conf]# vi hbase-site.xml 
+		.......
+		<!--设置HBase表数据，也就是HBase数据在hdfs上的存储根目录-->
+		<property>
+    		<name>hbase.rootdir</name>
+    		<value>hdfs://bigdata01:9000/hbase</value>
+		</property>
+		<!--zookeeper集群的URL配置，多个host中间用逗号隔开-->
+		<property>
+    		<name>hbase.zookeeper.quorum</name>
+    		<value>bigdata01,bigdata02,bigdata03</value>
+		</property>
+		<!--HBase在zookeeper上数据的根目录znode节点-->
+		<property>
+    		<name>zookeeper.znode.parent</name>
+    		<value>/hbase</value>
+		</property>
+		<!--设置zookeeper通信端口，不配置也可以，zookeeper默认就是2181-->
+		<property>
+    		<name>hbase.zookeeper.property.clientPort</name>
+    		<value>2181</value>
+		</property>
+
+	5: 最后修改regionservers文件，在里面添加HBase从节点的主机名或者ip(注意：如果是使用一台机器安装HBase伪分布集群，只需要在regionservers文件中配置那一台机器的主机名即可。)
+		[root@bigdata01 conf]# vi regionservers
+		bigdata02
+		bigdata03
+	6: 将bigdata01中修改完配置的HBase目录远程拷贝到bigdata02和bigdata03上
+	7: 启动HBase集群（注意：在启动HBase集群之前一定要确保Hadoop集群和Zookeeper集群已经正常启动了。）
+	   先启动Hadoop集群再启动ZooKeeper（3台机器）
+	   [root@bigdata01 apache-zookeeper-3.5.8-bin]# bin/zkServer.sh start
+	8: 最后在bigdata01上启动HBase集群
+	  [root@bigdata01 hbase-2.2.7]# bin/start-hbase.sh 
+	9: 验证集群
+		会发现多了一个HMaster进程，这个就是HBase集群主节点中的进程
+	   bigdata01:3826 NameNode
+		     5528 QuorumPeerMain
+		     5736 HMaster
+	             4093 SecondaryNameNode
+	             4334 ResourceManager
+	10: 然后在bigdata02(03同上)上执行jps命令，会发现多了一个HRegionServer进程，这个就是HBase集群从节点中的进程
+		2631 QuorumPeerMain
+		2249 NodeManager
+		2139 DataNode
+		2715 HRegionServer
+	11: 如果发现HMaster进程和HRegionServer进程都在，说明HBase集群正常启动了
+	    HBase提供的有web界面，可以通过浏览器确认集群是否正常启动，端口默认是16010
+            http://bigdata01:16010/
+	12: 停止HBase集群(注意：在停止集群进程的时候，要先停HBase集群进程，再停止Zookeeper集群和Hadoop集群，否则HBase停止程序会一直卡住不动，这种情况就需要使用kill命令强制杀进程了。)
+	   [root@bigdata01 hbase-2.2.7]# bin/stop-hbase.sh
